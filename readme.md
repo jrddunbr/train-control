@@ -48,3 +48,7 @@ This might get used for lighting also? Might be difficult to access with shield
 
 No uses yet for analog pins
 
+## Credits
+
+Kudos to the folks at Sparkfun for their basic (python GPIO code)[https://github.com/sparkfun/pcDuino/blob/master/examples/gpio/gpio_test.py]. It works wonders for interfacing the GPIO
+
