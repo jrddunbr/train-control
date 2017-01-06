@@ -11,12 +11,15 @@ htmlfile = open("index.html")
 htmld = htmlfile.readlines()
 htmlfile.close()
 
-html = "HTTP/1.1 200\n\n"
+html = ""
 
 for line in htmld:
     html += line + "\n"
 
-htmle = html.encode("UTF-8")
+state = "b" # have switch hit to position B (straight) when starting.
+cpos = "b" # set last position
+DELA = 0.5 # 500ms switching delay
+pwma = 0.5 # starting pwm value
 
 ## create a couple of empty arrays to store the pointers for our files
 pinMode = []
@@ -46,6 +49,20 @@ def stop():
     pinOutput(12, LOW)
     pinOutput(13, LOW)
 
+def left():
+    pinOutput(8, HIGH)
+    pinOutput(11, LOW)
+    pinOutput(9, HIGH)
+    time.sleep(DELA) # hold switch in position (give time for travel and collect bounce)
+    pinOutput(9, LOW)
+
+def right():
+    pinOutput(8, LOW)
+    pinOutput(11, HIGH)
+    pinOutput(9, HIGH)
+    time.sleep(DELA) # hold switch in position (give time for travel and collect bounce)
+    pinOutput(9, LOW)
+
 ## First, populate the arrays with file objects that we can use later.
 for i in range(0,18):
     pinMode.append(os.path.join(GPIO_MODE_PATH, 'gpio'+str(i)))
@@ -65,8 +82,6 @@ for pin in pinData:
 
 print("Prepared GPIO, starting")
 
-pwma = 0.5
-
 def pwm():
     print("starting pwm thread")
     while pwma >= 0:
@@ -82,36 +97,33 @@ def pwm():
     pinOutput(10, LOW)
     print("stopping pwm thread")
 
-state = "n"
-DELA = 0.001
-
-def light():
-    print("starting lights thread")
+def switch():
+    global state, cpos
+    print("starting switch thread")
     while state.find("s") == -1:
-        if state.find("ab") != -1:
-            pinOutput(9, HIGH)
-            pinOutput(8, HIGH)
-            pinOutput(11, LOW)
-            time.sleep(DELA)
-            pinOutput(8, LOW)
-            pinOutput(11, HIGH)
-            time.sleep(DELA)
-        elif state.find("a") != -1:
-            pinOutput(9, HIGH)
-            pinOutput(8, HIGH)
-            pinOutput(11, LOW)
-            time.sleep(DELA*2)
+        if state.find("a") != -1:
+            # hit switch left
+            left()
+            state = "n" # after switch set, resume doing nothing until state changes
+            cpos = "a"
         elif state.find("b") != -1:
-            pinOutput(9, HIGH)
-            pinOutput(8, LOW)
-            pinOutput(11, HIGH)
-            time.sleep(DELA*2)
+            # hit switch right
+            right()
+            state = "n" # after switch set, resume doing nothing until state changes
+            cpos = "b"
+        elif state.find("t") != - 1:
+            # toggle switch to other position
+            if cpos == "a":
+                cpos = "b"
+                right()
+                state = "n"
+            else:
+                cpos = "a"
+                left()
+                state = "n"
         else:
-            pinOutput(9, LOW)
-            pinOutput(8, LOW)
-            pinOutput(11, LOW)
-            time.sleep(DELA*2)
-    print("stopping lights thread")
+            time.sleep(DELA)
+    print("stopping switch thread")
     pinOutput(9, LOW)
     pinOutput(8, LOW)
     pinOutput(11, LOW)
@@ -133,18 +145,18 @@ def parseArg(arg):
         elif name.find("s") != -1:
             print("[net] speed: {}".format(float(value)))
             pwma = float(value)
-        elif name.find("l") != -1:
-            if value.find("ab") != -1:
-                print("[net] lights ab")
-                state = "ab"
-            elif value.find("a") != -1:
-                print("[net] lights a")
+        elif name.find("v") != -1:
+            if value.find("a") != -1:
+                print("[net] track a")
                 state = "a"
             elif value.find("b") != -1:
-                print("[net] lights b")
+                print("[net] track b")
                 state = "b"
+            elif value.find("t") != -1:
+                print("[net] toggle track")
+                state = "t"
             else:
-                print("[net] lights none")
+                print("[net] track none")
                 state = "n"
     except Exception as e:
         print("[arg]: {}".format(e))
@@ -179,10 +191,12 @@ def network():
                         except:
                             print ("failed to parse args..")
                             print(message)
-                    # return headers
-                    conn.send("HTTP/1.1 200".encode("UTF-8"))
-                    # reply with page
-                    conn.send(htmle)
+                    try:
+                        htmls = html.replace("!swstate", cpos)
+                    except:
+                        htmls = html
+                    # return headers and page
+                    conn.send("HTTP/1.1 200\nContent-Type: text/html\r\n\r\n{}".format(htmls).encode("UTF-8"))
                 conn.close()
             except Exception as e:
                 print ("[net]: {}".format(e))
@@ -191,7 +205,7 @@ def network():
 t1 = threading.Thread(target=pwm)
 t1.start()
 
-t2 = threading.Thread(target=light)
+t2 = threading.Thread(target=switch)
 t2.start()
 
 t3 = threading.Thread(target=network)
